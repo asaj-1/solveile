@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Solveile</title>
+<style>
+body{
+    margin:0;
+    font-family:Arial;
+    background:#111;
+    color:white;
+    overflow:hidden;
+}
+
+#game{
+    position:absolute;
+    top:50%;
+    left:50%;
+    transform:translate(-50%,-50%);
+    background:#222;
+    padding:20px;
+    border-radius:10px;
+    text-align:center;
+    z-index:10;
+}
+
+input, select{
+    padding:6px;
+    font-size:16px;
+}
+
+button{
+    padding:6px 12px;
+    margin:5px;
+}
+
+.digit{
+    display:inline-block;
+    font-size:26px;
+    font-weight:bold;
+    margin:2px;
+    padding:5px 8px;
+    border-radius:5px;
+}
+
+.green{background:#2ecc71;}
+.yellow{background:#f1c40f;color:black;}
+.red{background:#e74c3c;}
+
+.sticky{
+    position:absolute;
+    background:#fffa75;
+    color:black;
+    width:160px;
+    padding:10px;
+    border-radius:4px;
+    box-shadow:3px 3px 10px rgba(0,0,0,0.6);
+    cursor:grab;
+}
+
+#leaderboard{
+    max-height:150px;
+    overflow:auto;
+    font-size:14px;
+    text-align:left;
+}
+</style>
+</head>
+<body>
+
+<div id="game">
+    <h1>Solveile</h1>
+
+    <input id="username" placeholder="Username" maxlength="15">
+    <br><br>
+
+    <select id="difficulty" onchange="setDifficulty()">
+        <option value="easy">Easy</option>
+        <option value="normal" selected>Normal</option>
+        <option value="hard">Hard</option>
+        <option value="insane">Insane</option>
+    </select>
+
+    <p id="level">Level: 1</p>
+    <p id="tries">Tries: 15</p>
+    <p id="score">Score: 0</p>
+
+    <input id="guess">
+    <button onclick="submitGuess()">Submit</button>
+
+    <div id="feedback"></div>
+
+    <button onclick="submitScore()">Submit Score</button>
+
+    <h3>Leaderboard</h3>
+    <div id="leaderboard"></div>
+</div>
+
+<script>
+// --- CHANGE THIS to your backend URL ---
+const API_URL = "http://localhost:3000"; // <-- replace with your deployed server URL
+
+let level=1;
+let digits=4;
+let tries=15;
+let score=0;
+let virusPenalty=0;
+let difficulty="normal";
+let difficultyMultiplier=1.3;
+let virusChance=0.05;
+let virusIntervalTime=25000;
+let stickyAccuracy=1.0;
+let virusTimer;
+
+let code=generateCode(digits);
+
+function generateCode(len){
+    let r="";
+    for(let i=0;i<len;i++) r+=Math.floor(Math.random()*10);
+    return r;
+}
+
+function setDifficulty(){
+    difficulty=document.getElementById("difficulty").value;
+
+    if(difficulty==="easy"){
+        tries=18; virusChance=0.02; stickyAccuracy=1; difficultyMultiplier=1.0; virusIntervalTime=25000;
+    }
+    if(difficulty==="normal"){
+        tries=15; virusChance=0.05; stickyAccuracy=1; difficultyMultiplier=1.3; virusIntervalTime=25000;
+    }
+    if(difficulty==="hard"){
+        tries=13; virusChance=0.08; stickyAccuracy=0.8; difficultyMultiplier=1.7; virusIntervalTime=20000;
+    }
+    if(difficulty==="insane"){
+        tries=10; virusChance=0.12; stickyAccuracy=0.65; difficultyMultiplier=2.2; virusIntervalTime=15000;
+    }
+
+    restartVirusTimer();
+    resetGame();
+}
+
+function restartVirusTimer(){
+    clearInterval(virusTimer);
+    virusTimer=setInterval(triggerVirus,virusIntervalTime);
+}
+
+function triggerVirus(){
+    if(Math.random()<virusChance){
+        let changes=(difficulty==="insane")?2:1;
+        for(let i=0;i<changes;i++){
+            let idx=Math.floor(Math.random()*digits);
+            let newDigit=Math.floor(Math.random()*10);
+            code=code.substring(0,idx)+newDigit+code.substring(idx+1);
+        }
+        virusPenalty+=50;
+        alert("⚠ Virus mutated the code!");
+    }
+}
+
+function submitGuess(){
+    const guess=document.getElementById("guess").value;
+    if(guess.length!==digits) return alert("Enter "+digits+" digits");
+
+    let codeCopy=code.split("");
+    let guessArr=guess.split("");
+    let result=new Array(digits);
+
+    for(let i=0;i<digits;i++){
+        if(guessArr[i]===codeCopy[i]){
+            result[i]="green";
+            codeCopy[i]=null;
+            guessArr[i]=null;
+        }
+    }
+
+    for(let i=0;i<digits;i++){
+        if(!result[i]){
+            let index=codeCopy.indexOf(guessArr[i]);
+            result[i]=(index!==-1)?"yellow":"red";
+            if(index!==-1) codeCopy[index]=null;
+        }
+    }
+
+    const fb=document.getElementById("feedback");
+    fb.innerHTML="";
+    for(let i=0;i<digits;i++){
+        let s=document.createElement("span");
+        s.className="digit "+result[i];
+        s.innerText=guess[i];
+        fb.appendChild(s);
+    }
+
+    if(guess===code){
+        levelUp();
+    } else {
+        tries--;
+        if(tries<=0){
+            alert("Game Over. Code was "+code);
+            resetGame();
+        }
+    }
+
+    document.getElementById("guess").value="";
+    updateUI();
+}
+
+function levelUp(){
+    let base=level*100;
+    let efficiency=tries*15;
+    let digitBonus=digits*25;
+    let levelScore=(base+efficiency+digitBonus-virusPenalty)*difficultyMultiplier;
+
+    score+=Math.floor(levelScore);
+    virusPenalty=0;
+
+    level++;
+    if(level%3===1 && level>1) digits++;
+    if(level%2===1 && level>1) tries+=2;
+
+    code=generateCode(digits);
+    spawnStickyNotes();
+    updateUI();
+}
+
+function updateUI(){
+    document.getElementById("level").innerText="Level: "+level;
+    document.getElementById("tries").innerText="Tries: "+tries;
+    document.getElementById("score").innerText="Score: "+score;
+    document.getElementById("guess").maxLength=digits;
+}
+
+function resetGame(){
+    level=1; digits=4; score=0; virusPenalty=0;
+    code=generateCode(digits);
+    spawnStickyNotes();
+    updateUI();
+}
+
+function spawnStickyNotes(){
+    clearStickies();
+    let count=(Math.random()<0.5)?1:2;
+
+    for(let i=0;i<count;i++){
+        let note=document.createElement("div");
+        note.className="sticky";
+        note.innerText=(Math.random()<0.4)?getFunFact():generateDigitHint();
+        positionSticky(note);
+        makeDraggable(note);
+        document.body.appendChild(note);
+    }
+}
+
+function generateDigitHint(){
+    const truthful=Math.random()<stickyAccuracy;
+    const type=Math.floor(Math.random()*3);
+    const index=Math.floor(Math.random()*digits);
+    const actual=code[index];
+    const ord=["first","second","third","fourth","fifth","sixth","seventh","eighth","ninth","tenth"];
+
+    if(type===0){
+        let d=truthful?actual:Math.floor(Math.random()*10);
+        return "The "+ord[index]+" digit is "+d;
+    }
+    if(type===1){
+        let wrong=Math.floor(Math.random()*10);
+        return "Digit "+(index+1)+" is NOT "+wrong;
+    }
+    if(type===2){
+        let d=truthful?code[Math.floor(Math.random()*digits)]:Math.floor(Math.random()*10);
+        return "The code contains digit "+d;
+    }
+}
+
+function getFunFact(){
+    const facts=[
+        "Octopuses have 3 hearts.",
+        "Honey never spoils.",
+        "Sharks existed before trees.",
+        "Bananas are berries."
+    ];
+    return "Fun Fact: "+facts[Math.floor(Math.random()*facts.length)];
+}
+
+function positionSticky(note){
+    const margin=80;
+    const center=200;
+    let w=window.innerWidth;
+    let h=window.innerHeight;
+    let x,y;
+
+    do{
+        x=Math.random()*(w-2*margin)+margin;
+        y=Math.random()*(h-2*margin)+margin;
+    }while(
+        x>w/2-center && x<w/2+center &&
+        y>h/2-center && y<h/2+center
+    );
+
+    note.style.left=x+"px";
+    note.style.top=y+"px";
+}
+
+function clearStickies(){
+    document.querySelectorAll(".sticky").forEach(e=>e.remove());
+}
+
+function makeDraggable(el){
+    let offsetX,offsetY,isDown=false;
+    el.onmousedown=(e)=>{
+        isDown=true;
+        offsetX=e.clientX-el.offsetLeft;
+        offsetY=e.clientY-el.offsetTop;
+    };
+    document.onmousemove=(e)=>{
+        if(!isDown)return;
+        el.style.left=(e.clientX-offsetX)+"px";
+        el.style.top=(e.clientY-offsetY)+"px";
+    };
+    document.onmouseup=()=>isDown=false;
+}
+
+async function submitScore(){
+    let username=document.getElementById("username").value.trim();
+    if(!username) return alert("Enter username");
+
+    try {
+        const res=await fetch(API_URL+"/submit",{
+            method:"POST",
+            headers:{"Content-Type":"application/json"},
+            body:JSON.stringify({username,score,difficulty})
+        });
+        const data=await res.json();
+        if(!res.ok) return alert(data.error);
+        loadLeaderboard();
+    } catch(err){
+        alert("Cannot connect to server.");
+    }
+}
+
+async function loadLeaderboard(){
+    try{
+        const res=await fetch(API_URL+"/leaderboard");
+        const data=await res.json();
+        const div=document.getElementById("leaderboard");
+        div.innerHTML="";
+        data.forEach((e,i)=>{
+            div.innerHTML+=`${i+1}. ${e.username} — ${e.score} (${e.difficulty})<br>`;
+        });
+    } catch(err){
+        console.log("Failed to load leaderboard");
+    }
+}
+
+restartVirusTimer();
+spawnStickyNotes();
+updateUI();
+loadLeaderboard();
+</script>
+
+</body>
+</html>
